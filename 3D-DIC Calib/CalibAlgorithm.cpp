@@ -30,7 +30,7 @@ bool calib_algorithm::MakeCailbPattern(CalibPattern &Calib_P)
 	switch (Calib_P.PatternType)
 	{
 	// 生成棋盘格图案
-	case CALIB_PATTERN_CHEESEBOARD:
+	case CALIB_PATTERN_CHECKERBOARD:
 	{
 		int checkboardX = 0;//棋盘x坐标
 		int checkboardY = 0;//棋盘y坐标
@@ -198,6 +198,7 @@ double calib_algorithm::computeReprojectionErrors(
 // 张正友标定算法
 void calib_algorithm::StereoCalib()
 {
+	nimages = (int)goodImageList.size() / 2;
 	if (nimages < 2) {
 		destroyAllWindows();
 		cout << "错误: 提取到特征点的图片对数过少不足以完成标定\n";
@@ -231,14 +232,14 @@ void calib_algorithm::StereoCalib()
 	//}
 	//cout << endl << endl;
 
+
 	clock_t start_t = clock();
 	cameraMatrix[0] = initCameraMatrix2D(objectPoints, imagePoints[0], imageSize, 0);
 	cameraMatrix[1] = initCameraMatrix2D(objectPoints, imagePoints[1], imageSize, 0);
-
 	double rms = stereoCalibrate(objectPoints, imagePoints[0], imagePoints[1],
 		cameraMatrix[0], distCoeffs[0],
 		cameraMatrix[1], distCoeffs[1],
-		imageSize, R, T, E, F,
+		imageSize, R, T, E, F, perViewErrors,
 		cailb_option,
 		TermCriteria(TermCriteria::COUNT + TermCriteria::EPS, 30, 1e-5));
 	clock_t end_t = clock();
@@ -254,13 +255,29 @@ void calib_algorithm::StereoCalib()
 		cout << "RMS过大，建议重新标定，当前RMS：" << rms << "(RMS应当在0.5以下)" << endl;
 	}
 
+	// 保存各对图像的均方根重投影误差
+	Scalar REmean;  //均值
+	Scalar REstddev;  //标准差
+	meanStdDev(perViewErrors, REmean, REstddev);
+	FileStorage RMS_perViewErrors(cal_debug_folder + "/rms reprojection error.xml", FileStorage::WRITE);
+	if (RMS_perViewErrors.isOpened())
+	{
+		RMS_perViewErrors << "perViewErrors" << perViewErrors << "Mean" << (float)REmean.val[0] << "Std" << (float)REstddev.val[0];
+		RMS_perViewErrors.release();
+	}
+	else
+		cout << "错误: 无法保存均方根重投影误差\n";
+
+
+
 	// CALIBRATION QUALITY CHECK
 	// because the output fundamental matrix implicitly
 	// includes all the output information,
 	// we can check the quality of calibration using the
 	// epipolar geometry constraint: m2^t*F*m1=0
-	fstream epipolar_file("output/cal_errors.txt", ios_base::out);
-
+	// 设置对极误差结果存储文件
+	fstream epipolar_file(cal_debug_folder + "/cal_errors.txt", ios_base::out);
+	// 计算对极误差
 	double err = 0;
 	int npoints = 0;
 	vector<Vec3f> lines[2];
@@ -292,7 +309,7 @@ void calib_algorithm::StereoCalib()
 	cout << "average epipolar err = " << err / npoints << endl;
 
 	// 保存内参
-	FileStorage fs("./output/intrinsics.xml", FileStorage::WRITE);
+	FileStorage fs(cal_debug_folder + "/intrinsics.xml", FileStorage::WRITE);
 	if (fs.isOpened())
 	{
 		fs << "M1" << cameraMatrix[0] << "D1" << distCoeffs[0] <<
@@ -311,10 +328,11 @@ void calib_algorithm::StereoCalib()
 		imageSize, R, T, R1, R2, P1, P2, Q,
 		CALIB_ZERO_DISPARITY, 1, imageSize, &validRoi[0], &validRoi[1]);
 
-	fs.open("./output/extrinsics.xml", FileStorage::WRITE);
+	fs.open(cal_debug_folder + "/extrinsics.xml", FileStorage::WRITE);
 	if (fs.isOpened())
 	{
-		fs << "R" << R << "T" << T << "R1" << R1 << "R2" << R2 << "P1" << P1 << "P2" << P2 << "Q" << Q;
+		fs << "R" << R << "T" << T << "R1" << R1 << "R2" << R2 << 
+			"P1" << P1 << "P2" << P2 << "Q" << Q;
 		fs.release();
 	}
 	else
@@ -359,8 +377,10 @@ void calib_algorithm::StereoCalib()
 	}
 
 	// 计算校正映射，进行畸变校正
-	initUndistortRectifyMap(cameraMatrix[0], distCoeffs[0], R1, P1, imageSize, CV_16SC2, rmap[0][0], rmap[0][1]);
-	initUndistortRectifyMap(cameraMatrix[1], distCoeffs[1], R2, P2, imageSize, CV_16SC2, rmap[1][0], rmap[1][1]);
+	initUndistortRectifyMap(cameraMatrix[0], distCoeffs[0], Mat(), getOptimalNewCameraMatrix(cameraMatrix[0], distCoeffs[0], 
+		imageSize, 1, imageSize, 0), imageSize, CV_16SC2, rmap[0][0], rmap[0][1]);
+	initUndistortRectifyMap(cameraMatrix[1], distCoeffs[1], Mat(), getOptimalNewCameraMatrix(cameraMatrix[1], distCoeffs[1],
+		imageSize, 1, imageSize, 0), imageSize, CV_16SC2, rmap[1][0], rmap[1][1]);
 
 	Mat canvas;
 	double sf;
@@ -384,10 +404,10 @@ void calib_algorithm::StereoCalib()
 	{
 		for (int k = 0; k < 2; k++)
 		{
-			Mat img = imread("./data/" + goodImageList[i * 2 + k], 0), rimg, cimg;
+			Mat img = imread(image_folder + "/" + goodImageList[i * 2 + k], 0), rimg, cimg;
 			remap(img, rimg, rmap[k][0], rmap[k][1], INTER_LINEAR);
-			waitKey(1000);
-			bool writed = imwrite("./output/undistort/" + goodImageList[i * 2 + k].substr(0, goodImageList[i * 2 + k].size() - 4) + "_undistorted.jpg", rimg);
+			waitKey(100);
+			bool writed = imwrite(cal_debug_folder + "/undistort/" + goodImageList[i * 2 + k].substr(0, goodImageList[i * 2 + k].size() - 4) + "_undistorted.jpg", rimg);
 			if (!writed) {
 				cout << goodImageList[i * 2 + k] << "畸变校正图像存储失败\n";
 				destroyAllWindows();
@@ -420,7 +440,7 @@ void calib_algorithm::StereoCalib()
 }
 
 // 棋盘格角点提取
-void calib_cheeseboard::ExtractTarget()
+void calib_checkerboard::ExtractTarget()
 {
 	imagePoints[0].clear();
 	imagePoints[1].clear();
@@ -437,9 +457,9 @@ void calib_cheeseboard::ExtractTarget()
 	// 创建文件目录
 	if (draw_intersection)
 	{
-		create_directory("./output/corners");
+		create_directory(cal_debug_folder + "/corners");
 	}
-	create_directory("./output/undistort/");
+	create_directory(cal_debug_folder + "/undistort/");
 
 	clock_t start_t = clock();
 	nimages = (int)imagelist.size() / 2;
@@ -493,7 +513,7 @@ void calib_cheeseboard::ExtractTarget()
 				double sf = 640. / MAX(img.rows, img.cols);
 				resize(cimg, cimg1, Size(), sf, sf, INTER_LINEAR_EXACT);
 				imshow("corners", cimg1);
-				bool writed = imwrite("./output/corners/" + filename.substr(0, filename.size() - 4) + "_corners.jpg", cimg1);
+				bool writed = imwrite(cal_debug_folder + "/corners/" + filename.substr(0, filename.size() - 4) + "_corners.jpg", cimg1);
 				if (!writed) {
 					cout << filename << "角点检测图像存储失败\n";
 				}
@@ -546,6 +566,7 @@ void calib_circular::ExtractTarget()
 	imagePoints[0].clear();
 	imagePoints[1].clear();
 	objectPoints.clear();
+	
 	endtime = 0;
 
 
@@ -559,9 +580,9 @@ void calib_circular::ExtractTarget()
 	// 创建文件目录
 	if (draw_intersection)
 	{
-		create_directory("./output/corners");
+		create_directory(cal_debug_folder + "/corners");
 	}
-	create_directory("./output/undistort/");
+	create_directory(cal_debug_folder + "/undistort/");
 
 	clock_t start_t = clock();
 	nimages = (int)imagelist.size() / 2;
@@ -569,6 +590,7 @@ void calib_circular::ExtractTarget()
 
 	imagePoints[0].resize(nimages);
 	imagePoints[1].resize(nimages);
+	
 
 
 	SimpleBlobDetector::Params params;
@@ -621,7 +643,7 @@ void calib_circular::ExtractTarget()
 				double sf = 640. / MAX(img.rows, img.cols);
 				resize(cimg, cimg1, Size(), sf, sf, INTER_LINEAR_EXACT);
 				imshow("corners", cimg1);
-				bool writed = imwrite("./output/corners/" + filename.substr(0, filename.size() - 4) + "_circulars.jpg", cimg);
+				bool writed = imwrite(cal_debug_folder + "/corners/" + filename.substr(0, filename.size() - 4) + "_circulars.jpg", cimg);
 				if (!writed) {
 					cout << filename << "圆点检测图像存储失败\n";
 				}
@@ -677,10 +699,8 @@ void calib_circular_new::get_dot_markers(IN Mat img,
 	IN const int min_size) {
 
 	// 设置提取算法参数
-	int block_size = 75; // The old method had default set to 75
+	int block_size = block_size_default; // The old method had default set to 75
 	if (block_size % 2 == 0) block_size++; // block size has to be odd
-	const bool use_adaptive = false;
-	int filter_mode = 1;
 	int threshold_mode = 0;
 
 	// 设置用于检测的BLOB
@@ -1043,6 +1063,7 @@ void calib_circular_new::filter_dot_markers(vector<KeyPoint> dots,
 	}
 }
 
+// 获取其他圆点的像素坐标
 int calib_circular_new::get_dot_targets(Mat & img,
 	vector<KeyPoint> & key_points,
 	vector<KeyPoint> & img_points,
@@ -1057,13 +1078,15 @@ int calib_circular_new::get_dot_targets(Mat & img,
 	// 建立图片副本
 	Mat img_cpy = img.clone();
 	
+	int block_size = block_size_default;
 	// 设置提取算法默认参数
 	if (block_size % 2 == 0) block_size++;
+	int min_blob_size = min_blob_size_default;
 
 	// 设置标定板相关参数
 	const bool invert = patternType == CALIB_PATTERN_SPECIAL;
 
-	// 创建特殊标志点坐标
+	// 创建方位点阵列坐标向量（索引）
 	vector<KeyPoint> marker_grid_locs;
 	marker_grid_locs.resize(3);
 	marker_grid_locs[0].pt.x = origin_loc_x;
@@ -1131,7 +1154,7 @@ int calib_circular_new::get_dot_targets(Mat & img,
 
 	// 获取了关键点坐标以后开始获取其他点的坐标
 
-	// 将标志定根据圆点，X轴，Y轴进行重新排序
+	// 将方位点根据圆点，X轴，Y轴进行重新排序
 	reorder_keypoints(key_points);
 
 	// 打印当前关键点的信息情况
@@ -1159,7 +1182,7 @@ int calib_circular_new::get_dot_targets(Mat & img,
 	vector<float> grd_to_imgx(6, 0.0);
 	vector<float> grd_to_imgy(6, 0.0);
 
-	// 通过关键点计算图像到圆点阵列和圆点阵列到图像的变换（无梯形失真）
+	// 通过方位点计算像素坐标和圆点阵列坐标相互转换关系（无梯形失真）
 	calc_trans_coeff(key_points, marker_grid_locs, img_to_grdx, img_to_grdy, grd_to_imgx, grd_to_imgy);
 
 	// 从关键点之间的灰阶确定阈值
@@ -1248,6 +1271,9 @@ void calib_circular_new::ExtractTarget()
 	objectPoints.clear();
 	endtime = 0;
 
+	// 算法参数初始化
+	int min_blob_size = min_blob_size_default;
+
 	if (imagelist.size() % 2 != 0)
 	{
 		cout << "Error: 图片列表中数目为奇数，请重新查验\n";
@@ -1256,6 +1282,7 @@ void calib_circular_new::ExtractTarget()
 	clock_t start_t = clock();
 	nimages = (int)imagelist.size() / 2;
 	int i, j, k = (int)imagelist.size() / 2;
+	goodImage.assign(nimages, true);
 
 	Point2f zero_point;
 	zero_point.x = 0;
@@ -1277,10 +1304,10 @@ void calib_circular_new::ExtractTarget()
 	if (draw_intersection)
 	{
 		// 存放特征点提取图片
-		create_directory("./output/intersection/");
+		create_directory(cal_debug_folder + "/intersection/");
 	}
 	// 存放取畸变后的图片
-	create_directory("./output/undistort/");
+	create_directory(cal_debug_folder + "/undistort/");
 
 	// 记录一组默认二值化参数值
 	const int orig_thresh_start = 20;
@@ -1344,7 +1371,7 @@ void calib_circular_new::ExtractTarget()
 				Mat img_c;
 				resize(img, img_c, Size(), sf, sf, INTER_LINEAR_EXACT);
 				imshow("intersection", img_c);
-				bool writed = imwrite("./output/intersection/" + filename.substr(0, filename.size() - 4) + "_intersection.jpg", img);
+				bool writed = imwrite(cal_debug_folder + "/intersection/" + filename.substr(0, filename.size() - 4) + "_intersection.jpg", img);
 				if (!writed) {
 					cout << filename << "带标记点的圆点图像存储失败\n";
 				}
@@ -1356,6 +1383,7 @@ void calib_circular_new::ExtractTarget()
 				putchar('.');
 			if (err_code != 0) {
 				WARN_MSG(filename << " 提取圆点错误，错误码: " << err_code);
+				goodImage[i] = false;
 				break;
 			}
 			assert(key_points.size() == 3);
@@ -1395,6 +1423,7 @@ void calib_circular_new::ExtractTarget()
 			if (num_common_pts < (num_fiducials_x*num_fiducials_y*image_set_tol)) {
 				//忽略该对图像
 				WARN_MSG("excluding this image set due to not enough dots common among all images");
+				goodImage[i] = false;
 				continue;
 			}
 			else {
@@ -1412,13 +1441,22 @@ void calib_circular_new::ExtractTarget()
 		cout << "错误: 图片对数过少不足以完成标定\n";
 		return;
 	}
+	else {
+		FileStorage fs(cal_debug_folder + "/GoodImagelist.xml", FileStorage::WRITE);
+		fs << "goodImageList" << goodImageList;
+		fs.release();
+	}
 
 	imagePoints[0].resize(nimages);
 	imagePoints[1].resize(nimages);
 	objectPoints.resize(nimages);
+	int length = (int)imagelist.size() / 2;
+	int index = 0;
 
-	for (i = 0; i < nimages; i++)
+	for (i = 0; i < length; i++)
 	{
+		if (!goodImage[i])
+			continue;
 		for (int i_x = 0; i_x < num_fiducials_x; i_x++) {
 			for (int i_y = 0; i_y < num_fiducials_y; i_y++) {
 				bool common_pt = true;
@@ -1430,12 +1468,14 @@ void calib_circular_new::ExtractTarget()
 				}
 				if (common_pt) {
 					for (int i_cam = 0; i_cam < 2; i_cam++) {
-						imagePoints[i_cam][i].push_back(image_points_[i_cam][i][i_x][i_y]);
+						imagePoints[i_cam][index].push_back(image_points_[i_cam][i][i_x][i_y]);
 					}
-					objectPoints[i].push_back(Point3f((i_x - origin_loc_x)*cal_target_spacing_size, (i_y - origin_loc_y)*cal_target_spacing_size, 0));
+					objectPoints[index].push_back(Point3f((i_x - origin_loc_x)*cal_target_spacing_size, (i_y - origin_loc_y)*cal_target_spacing_size, 0));
+					
 				}				
 			}
 		}
+		index++;
 	}
 	clock_t end_t = clock();
 	endtime += (double)(end_t - start_t) / CLOCKS_PER_SEC;

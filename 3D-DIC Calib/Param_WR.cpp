@@ -143,8 +143,8 @@ void Param_WR::PrintCalibParam(const CalibPattern* const calib_p)
 	cout << "特征点间距（实际物理尺度）：" << calib_p->TargetSize << endl;
 	cout << "标定图案类型：";
 	switch (calib_p->PatternType) {
-	case CALIB_PATTERN_CHEESEBOARD: {
-		cout << "CALIB_PATTERN_CHEESEBOARD" << endl;
+	case CALIB_PATTERN_CHECKERBOARD: {
+		cout << "CALIB_PATTERN_CHECKERBOARD" << endl;
 		break;
 	}
 	case CALIB_PATTERN_CIRCULAR: {

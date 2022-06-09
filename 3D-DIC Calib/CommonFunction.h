@@ -35,7 +35,7 @@ using namespace cv;
 // 标定图案类型
 enum calib_pattern
 {
-	CALIB_PATTERN_CHEESEBOARD = 0,		/// 棋盘格图案
+	CALIB_PATTERN_CHECKERBOARD = 0,		/// 棋盘格图案
 	CALIB_PATTERN_CIRCULAR,				/// 对称无标记圆点图案
 	CALIB_PATTERN_SPECIAL,				/// 对称有标记圆点图案
 	// 请勿在MAX后新增图案类型
@@ -45,7 +45,7 @@ enum calib_pattern
 
 
 
-//#define CALIB_PATTERN_CHEESEBOARD			0x0			/// 棋盘格图案
+//#define CALIB_PATTERN_CHECKERBOARD		0x0			/// 棋盘格图案
 //#define CALIB_PATTERN_CIRCULAR			0x1			/// 对称无标记圆点图案
 //#define CALIB_PATTERN_SPECIAL				0x2			/// 对称有标记圆点图案
 

@@ -320,6 +320,7 @@ int main()
 			// 功能一：相机拍摄图像模式
 			case 1:
 			{
+				create_directory("./data");
 				TiXmlDocument camera_param;
 				if (!camera_param.LoadFile(camera_param_loc.c_str()))
 				{
@@ -628,9 +629,11 @@ int main()
 						FileStorage fs(temp, FileStorage::WRITE); 
 						fs << "imagelist" << ImageName;
 						cout << "文件列表生成成功！" << endl;
+						fs.release();
 					}
 					else
 						cout << "文件列表生成失败！图片缺失" << endl;
+					ImageName.clear();
 				} while (0);
 				
 
@@ -665,12 +668,16 @@ int main()
 				}
 				CalibPattern* p_calib_param = new CalibPattern;
 				if (Param_WR::ReadCalibParam(calib_param, p_calib_param) == 0)
+				{
+					cout << "无法读取标定参数文件，请检查文件是否损坏或占用！" << endl;
 					break;
+				}
+					
 				calib_algorithm *camera_calib = nullptr;
 				switch (p_calib_param->PatternType)
 				{
-				case CALIB_PATTERN_CHEESEBOARD:
-					camera_calib = new calib_cheeseboard(*p_calib_param);
+				case CALIB_PATTERN_CHECKERBOARD:
+					camera_calib = new calib_checkerboard(*p_calib_param);
 					break;
 				case CALIB_PATTERN_CIRCULAR:
 					camera_calib = new calib_circular(*p_calib_param);
@@ -679,7 +686,9 @@ int main()
 					camera_calib = new calib_circular_new(*p_calib_param);
 					break;
 				}
+				// 配置输入输出文件夹
 				camera_calib->image_folder = p_calib_param->image_folder ;
+				camera_calib->cal_debug_folder = p_calib_param->cal_debug_folder;
 				if (!camera_calib->readStringList()) {
 					cout << "无法打开 " << camera_calib->image_folder + "/stereo_calib.xml" << " 或文件不存在！" << endl;
 					break;
@@ -905,7 +914,7 @@ int main()
 						{
 						case 1:
 						{
-							p_calib_param->PatternType = CALIB_PATTERN_CHEESEBOARD;
+							p_calib_param->PatternType = CALIB_PATTERN_CHECKERBOARD;
 							break;
 						}
 						case 2:
@@ -967,7 +976,7 @@ int main()
 						{
 						case 1:
 						{
-							C_P.PatternType = CALIB_PATTERN_CHEESEBOARD;
+							C_P.PatternType = CALIB_PATTERN_CHECKERBOARD;
 							if (C_P.check())
 								calib_algorithm::MakeCailbPattern(C_P);
 							break;

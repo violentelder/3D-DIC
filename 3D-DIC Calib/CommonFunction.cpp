@@ -270,7 +270,7 @@ calib_pattern string_to_target_type(string & in) {
 string pattern_to_string(calib_pattern in) {
 	assert(in < MAX_TARGET_TYPE);
 	const static char * targetStrings[] = {
-		"CALIB_PATTERN_CHEESEBOARD",
+		"CALIB_PATTERN_CHECKERBOARD",
 		"CALIB_PATTERN_CIRCULAR",
 		"CALIB_PATTERN_SPECIAL"
 	};

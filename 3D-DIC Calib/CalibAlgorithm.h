@@ -27,7 +27,6 @@ public:
 		cailb_option = CALIB_FIX_ASPECT_RATIO +
 			CALIB_ZERO_TANGENT_DIST +
 			CALIB_USE_INTRINSIC_GUESS +
-			CALIB_SAME_FOCAL_LENGTH +
 			CALIB_RATIONAL_MODEL +
 			CALIB_FIX_K3 + CALIB_FIX_K4 + CALIB_FIX_K5;
 	};
@@ -45,7 +44,6 @@ public:
 		cailb_option = CALIB_FIX_ASPECT_RATIO +
 			CALIB_ZERO_TANGENT_DIST +
 			CALIB_USE_INTRINSIC_GUESS +
-			CALIB_SAME_FOCAL_LENGTH +
 			CALIB_RATIONAL_MODEL +
 			CALIB_FIX_K3 + CALIB_FIX_K4 + CALIB_FIX_K5;
 	}
@@ -57,7 +55,11 @@ public:
 	double endtime;
 
 	string image_folder;
+	string cal_debug_folder;
 	vector<string> imagelist;
+
+	// 每对图像的均方根重投影误差
+	Mat perViewErrors;
 
 	int nimages;
 	bool useCalibrated;
@@ -110,17 +112,17 @@ protected:
 };
 
 // 棋盘格标定算法
-class calib_cheeseboard : public calib_algorithm
+class calib_checkerboard : public calib_algorithm 
 {
 public:
-	calib_cheeseboard()
+	calib_checkerboard()
 		: boardSize(9, 6){};
 
-	calib_cheeseboard(CalibPattern Calib_P)
+	calib_checkerboard(CalibPattern Calib_P)
 		: calib_algorithm(Calib_P)
 		, boardSize(num_fiducials_x, num_fiducials_y){};
 
-	~calib_cheeseboard() { };
+	~calib_checkerboard() { };
 
 	
 	Size boardSize;
@@ -186,7 +188,7 @@ public:
 	
 	// 提取算法默认参数（可修改）
 	//// 提取到的特征点坐标与预期位置的可接受差异（网格坐标系）
-	double dot_tol = 0.25;
+	const double dot_tol = 0.25;
 	//// 图像二值化参数
 	int threshold_start = 20;
 	int threshold_end = 250;
@@ -194,17 +196,18 @@ public:
 	bool preview_thresh = false;
 	int threshold_mode = 0;
 	//// 自适应二值化参数
-	bool use_adaptive = false;
-	int filter_mode = 1;
+	const bool use_adaptive = false;
+	const int filter_mode = 1;
 	//// 圆点提取算法参数
-	int block_size = 75; 
-	int min_blob_size = 100;
+	const int block_size_default = 75; 
+	const int min_blob_size_default = 100;
 	//// 左右相机图像包含的共同点数量比例
-	float image_set_tol = 0.75;
+	const float image_set_tol = 0.75;
 
 	// 提取带标记点的圆点标定算法
 	void ExtractTarget();
 
+	// 获取其他圆点的像素坐标
 	int get_dot_targets(Mat & img,
 		vector<cv::KeyPoint> & key_points,
 		vector<cv::KeyPoint> & img_points,
@@ -251,4 +254,5 @@ protected:
 
 private:
 	vector<vector<vector<vector<Point2f> > > > image_points_;
+	vector<bool> goodImage;
 };
